@@ -83,11 +83,11 @@
           # ─────────────────────────────────────────────────────────────────────
           themeFiles = pkgs.runCommand "qgis-docs-theme" {} ''
             mkdir -p $out
-            cp ${./theme/doxygen-awesome.css} $out/
-            cp ${./theme/doxygen-awesome-sidebar-only.css} $out/
-            cp ${./theme/doxygen-awesome-sidebar-only-darkmode-toggle.css} $out/
-            cp ${./theme/doxygen-awesome-darkmode-toggle.js} $out/
-            cp ${./theme/qgis-theme.css} $out/
+            cp ${./theme/doxygen-awesome.css} $out/doxygen-awesome.css
+            cp ${./theme/doxygen-awesome-sidebar-only.css} $out/doxygen-awesome-sidebar-only.css
+            cp ${./theme/doxygen-awesome-sidebar-only-darkmode-toggle.css} $out/doxygen-awesome-sidebar-only-darkmode-toggle.css
+            cp ${./theme/doxygen-awesome-darkmode-toggle.js} $out/doxygen-awesome-darkmode-toggle.js
+            cp ${./theme/qgis-theme.css} $out/qgis-theme.css
           '';
 
           # ─────────────────────────────────────────────────────────────────────
