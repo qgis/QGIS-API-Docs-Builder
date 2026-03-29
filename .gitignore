@@ -1,0 +1,27 @@
+# Build artifacts
+/build/
+/output/
+/docs-output/
+/build-logs/
+/qgis-api-docs-local-test/
+
+# Nix
+/result
+/.direnv/
+
+# Editor
+*.swp
+*.swo
+*~
+.nvimlog
+
+# Logs
+*.log
+PROMPT.log
+/logs/
+
+# OS
+.DS_Store
+Thumbs.db
+result-docs
+.claude/

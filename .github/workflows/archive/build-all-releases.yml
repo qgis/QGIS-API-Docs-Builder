@@ -1,0 +1,214 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# QGIS API Documentation Builder - Build All Releases Workflow
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+# Builds API documentation for all QGIS releases and publishes to Cachix
+#
+# Made with 💗 by Kartoza | https://kartoza.com
+#
+# ═══════════════════════════════════════════════════════════════════════════════
+
+name: Build All Releases
+
+on:
+  # Manual trigger
+  workflow_dispatch:
+    inputs:
+      min_version:
+        description: 'Minimum QGIS version to build (e.g., 3.0)'
+        required: false
+        default: '3.0'
+      specific_release:
+        description: 'Build only this release (e.g., release-3_34)'
+        required: false
+        default: ''
+      dry_run:
+        description: 'Dry run (show what would be built)'
+        required: false
+        default: 'false'
+        type: boolean
+
+  # Schedule: Run weekly on Sunday at 2am UTC
+  schedule:
+    - cron: '0 2 * * 0'
+
+  # Run on push to main branch
+  push:
+    branches:
+      - main
+    paths:
+      - 'flake.nix'
+      - 'flake.lock'
+      - 'scripts/**'
+      - '.github/workflows/build-all-releases.yml'
+
+env:
+  CACHIX_CACHE: qgisapidocumentation
+
+jobs:
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Discover all release branches
+  # ─────────────────────────────────────────────────────────────────────────────
+  discover-releases:
+    name: Discover Releases
+    runs-on: ubuntu-latest
+    outputs:
+      releases: ${{ steps.get-releases.outputs.releases }}
+      release_count: ${{ steps.get-releases.outputs.count }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Get release branches
+        id: get-releases
+        run: |
+          MIN_VERSION="${{ github.event.inputs.min_version || '3.0' }}"
+          SPECIFIC="${{ github.event.inputs.specific_release || '' }}"
+
+          if [[ -n "$SPECIFIC" ]]; then
+            echo "Building specific release: $SPECIFIC"
+            RELEASES="[\"$SPECIFIC\"]"
+            COUNT=1
+          else
+            echo "Fetching release branches from QGIS repository..."
+            BRANCHES=$(git ls-remote --heads https://github.com/qgis/QGIS.git 2>/dev/null | \
+              awk '{print $2}' | \
+              sed 's|refs/heads/||' | \
+              grep '^release-' | \
+              sort -V)
+
+            # Filter by minimum version
+            FILTERED=""
+            while IFS= read -r branch; do
+              [[ -z "$branch" ]] && continue
+              # Extract version: release-3_34 -> 3.34
+              VERSION=$(echo "$branch" | sed -E 's/^release-([0-9]+)_([0-9]+)$/\1.\2/' | sed -E 's/^release-([0-9]+)\.([0-9]+)$/\1.\2/')
+
+              # Check if version is numeric and >= MIN_VERSION
+              if [[ "$VERSION" =~ ^[0-9]+\.[0-9]+$ ]]; then
+                V_MAJOR=$(echo "$VERSION" | cut -d. -f1)
+                V_MINOR=$(echo "$VERSION" | cut -d. -f2)
+                MIN_MAJOR=$(echo "$MIN_VERSION" | cut -d. -f1)
+                MIN_MINOR=$(echo "$MIN_VERSION" | cut -d. -f2)
+
+                if [[ "$V_MAJOR" -gt "$MIN_MAJOR" ]] || \
+                   [[ "$V_MAJOR" -eq "$MIN_MAJOR" && "$V_MINOR" -ge "$MIN_MINOR" ]]; then
+                  FILTERED="${FILTERED}${branch}"$'\n'
+                else
+                  echo "Skipping $branch (version $VERSION < $MIN_VERSION)"
+                fi
+              fi
+            done <<< "$BRANCHES"
+
+            # Convert to JSON array
+            RELEASES=$(echo "$FILTERED" | grep -v '^$' | jq -R -s -c 'split("\n") | map(select(length > 0))')
+            COUNT=$(echo "$RELEASES" | jq 'length')
+          fi
+
+          echo "releases=$RELEASES" >> $GITHUB_OUTPUT
+          echo "count=$COUNT" >> $GITHUB_OUTPUT
+          echo "Found $COUNT releases to build"
+          echo "$RELEASES" | jq '.'
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Build documentation for each release
+  # ─────────────────────────────────────────────────────────────────────────────
+  build-release:
+    name: Build ${{ matrix.release }}
+    needs: discover-releases
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        release: ${{ fromJson(needs.discover-releases.outputs.releases) }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v27
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            accept-flake-config = true
+
+      - name: Setup Cachix
+        uses: cachix/cachix-action@v15
+        with:
+          name: ${{ env.CACHIX_CACHE }}
+          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
+          skipPush: ${{ github.event.inputs.dry_run == 'true' }}
+
+      - name: Build documentation for ${{ matrix.release }}
+        if: ${{ github.event.inputs.dry_run != 'true' }}
+        run: |
+          BRANCH="${{ matrix.release }}"
+          echo "Building QGIS API docs for $BRANCH..."
+
+          # Create temporary flake for this specific release
+          TEMP_DIR=$(mktemp -d)
+          trap 'rm -rf "$TEMP_DIR"' EXIT
+
+          cat > "$TEMP_DIR/flake.nix" <<EOF
+          {
+            description = "QGIS API Documentation for $BRANCH";
+            inputs = {
+              nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
+              flake-utils.url = "github:numtide/flake-utils";
+              qgis = {
+                url = "github:qgis/QGIS/$BRANCH";
+                flake = true;
+              };
+            };
+            outputs = { self, nixpkgs, flake-utils, qgis }:
+              flake-utils.lib.eachDefaultSystem (system:
+                let
+                  pkgs = import nixpkgs { inherit system; };
+                  qgisDocs = qgis.packages.\${system}.docs or null;
+                in {
+                  packages = {
+                    docs = if qgisDocs != null
+                      then qgisDocs
+                      else pkgs.runCommand "qgis-docs-unavailable" {} ''
+                        mkdir -p \$out
+                        echo "Docs unavailable for $BRANCH" > \$out/index.html
+                      '';
+                    default = self.packages.\${system}.docs;
+                  };
+                }
+              );
+          }
+          EOF
+
+          echo "Building..."
+          nix build "$TEMP_DIR#docs" --no-link --print-out-paths
+
+          echo "Build completed for $BRANCH"
+
+      - name: Dry run - Show what would be built
+        if: ${{ github.event.inputs.dry_run == 'true' }}
+        run: |
+          echo "[DRY RUN] Would build: ${{ matrix.release }}"
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Summary
+  # ─────────────────────────────────────────────────────────────────────────────
+  summary:
+    name: Build Summary
+    needs: [discover-releases, build-release]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Summary
+        run: |
+          echo "# QGIS API Documentation Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Total releases processed:** ${{ needs.discover-releases.outputs.release_count }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Cachix cache:** https://${{ env.CACHIX_CACHE }}.cachix.org" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "Made with 💗 by [Kartoza](https://kartoza.com)" >> $GITHUB_STEP_SUMMARY

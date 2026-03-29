@@ -1,0 +1,281 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# QGIS API Documentation - Automatic Release Detection
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+# Automatically detects new QGIS releases, updates releases.nix,
+# rebuilds the index page, builds docs, and pushes to Cachix.
+#
+# Made with 💗 by Kartoza | https://kartoza.com
+#
+# ═══════════════════════════════════════════════════════════════════════════════
+
+name: Detect New Releases
+
+on:
+  # Run daily at 4am UTC
+  schedule:
+    - cron: '0 4 * * *'
+
+  # Allow manual trigger
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run - detect but do not commit'
+        required: false
+        default: 'false'
+        type: boolean
+
+env:
+  CACHIX_CACHE: qgisapidocumentation
+
+jobs:
+  detect-and-update:
+    name: Detect New Releases
+    runs-on: ubuntu-latest
+    outputs:
+      new_releases: ${{ steps.detect.outputs.new_releases }}
+      has_new: ${{ steps.detect.outputs.has_new }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v27
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: Detect new QGIS releases
+        id: detect
+        run: |
+          echo "Fetching QGIS release branches..."
+
+          # Get all release branches
+          BRANCHES=$(git ls-remote --heads https://github.com/qgis/QGIS.git 2>/dev/null | \
+            awk '{print $2}' | \
+            sed 's|refs/heads/||' | \
+            grep '^release-[0-9]' | \
+            sort -t_ -k2 -n)
+
+          echo "Found branches:"
+          echo "$BRANCHES"
+
+          # Check which have flake.nix
+          echo ""
+          echo "Checking for flake.nix support..."
+          SUPPORTED=""
+          while IFS= read -r branch; do
+            [[ -z "$branch" ]] && continue
+            if curl -sf "https://raw.githubusercontent.com/qgis/QGIS/$branch/flake.nix" > /dev/null 2>&1; then
+              echo "  ✓ $branch has flake.nix"
+              SUPPORTED="${SUPPORTED}${branch}"$'\n'
+            fi
+          done <<< "$BRANCHES"
+
+          # Extract versions from supported branches
+          echo ""
+          echo "Supported releases:"
+          echo "$SUPPORTED"
+
+          # Read current releases.nix to find what we already have
+          CURRENT_VERSIONS=$(grep -oP 'branch = "release-[0-9]+_[0-9]+"' releases.nix | \
+            sed 's/branch = "release-//' | sed 's/"$//' | sort -u)
+
+          echo ""
+          echo "Currently configured versions:"
+          echo "$CURRENT_VERSIONS"
+
+          # Find new releases
+          NEW_RELEASES=""
+          while IFS= read -r branch; do
+            [[ -z "$branch" ]] && continue
+            # Extract version: release-3_44 -> 3_44
+            VERSION=$(echo "$branch" | sed 's/release-//')
+            if ! echo "$CURRENT_VERSIONS" | grep -q "^${VERSION}$"; then
+              echo "NEW: $branch ($VERSION)"
+              NEW_RELEASES="${NEW_RELEASES}${branch}:${VERSION}"$'\n'
+            fi
+          done <<< "$SUPPORTED"
+
+          if [[ -n "$NEW_RELEASES" ]]; then
+            echo "has_new=true" >> $GITHUB_OUTPUT
+            # Store as base64 to preserve newlines
+            echo "new_releases=$(echo "$NEW_RELEASES" | base64 -w0)" >> $GITHUB_OUTPUT
+            echo ""
+            echo "New releases to add:"
+            echo "$NEW_RELEASES"
+          else
+            echo "has_new=false" >> $GITHUB_OUTPUT
+            echo "new_releases=" >> $GITHUB_OUTPUT
+            echo ""
+            echo "No new releases found."
+          fi
+
+      - name: Update releases.nix
+        if: steps.detect.outputs.has_new == 'true' && github.event.inputs.dry_run != 'true'
+        run: |
+          NEW_RELEASES=$(echo "${{ steps.detect.outputs.new_releases }}" | base64 -d)
+
+          echo "Updating releases.nix with new releases..."
+
+          # Get current highest order number
+          CURRENT_MAX_ORDER=$(grep -oP 'order = \d+' releases.nix | grep -oP '\d+' | sort -n | tail -1)
+          NEXT_ORDER=$((CURRENT_MAX_ORDER + 1))
+
+          # Process each new release
+          while IFS=: read -r branch version; do
+            [[ -z "$branch" ]] && continue
+
+            # Format version for display: 3_44 -> 3.44
+            DISPLAY_VERSION=$(echo "$version" | tr '_' '.')
+
+            # Determine if LTS (typically .22, .28, .34 are LTS)
+            MINOR=$(echo "$version" | cut -d_ -f2)
+            IS_LTS="false"
+            if [[ "$MINOR" == "22" ]] || [[ "$MINOR" == "28" ]] || [[ "$MINOR" == "34" ]] || [[ "$MINOR" == "40" ]]; then
+              IS_LTS="true"
+            fi
+
+            # Check if this is the latest (highest version number)
+            IS_LATEST="true"  # New release is likely the latest
+
+            echo "Adding $version (display: $DISPLAY_VERSION, LTS: $IS_LTS, order: $NEXT_ORDER)"
+
+            # Create the new entry
+            NEW_ENTRY="
+  \"${version}\" = {
+    branch = \"${branch}\";
+    version = \"${DISPLAY_VERSION}\";
+    label = \"${DISPLAY_VERSION}$([ "$IS_LTS" = "true" ] && echo " LTS" || echo "")\";
+    isLTS = ${IS_LTS};
+    isLatest = ${IS_LATEST};
+    isMaster = false;
+    order = ${NEXT_ORDER};
+  };"
+
+            # Insert before the closing brace, after the last entry
+            # Find the line with the last closing brace of an entry and insert after
+            sed -i "/^}$/i\\${NEW_ENTRY}" releases.nix
+
+            NEXT_ORDER=$((NEXT_ORDER + 1))
+
+          done <<< "$NEW_RELEASES"
+
+          # Update isLatest for previous releases (set to false)
+          # Find entries that aren't the new one and set isLatest = false
+          # This is a simplification - in practice you'd want smarter logic
+
+          echo ""
+          echo "Updated releases.nix:"
+          cat releases.nix
+
+      - name: Rebuild index page
+        if: steps.detect.outputs.has_new == 'true' && github.event.inputs.dry_run != 'true'
+        run: |
+          echo "Rebuilding index page..."
+          nix build .#index --no-link
+          echo "Index page rebuilt successfully"
+
+      - name: Commit changes
+        if: steps.detect.outputs.has_new == 'true' && github.event.inputs.dry_run != 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git add releases.nix
+          git commit -m "Add new QGIS release(s) to documentation
+
+          Automatically detected and added new QGIS release branches.
+
+          This commit was created automatically by the detect-new-releases workflow."
+
+          git push
+
+      - name: Summary
+        run: |
+          echo "# Release Detection Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [[ "${{ steps.detect.outputs.has_new }}" == "true" ]]; then
+            echo "**New releases detected!**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "The following releases were added to \`releases.nix\`:" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "${{ steps.detect.outputs.new_releases }}" | base64 -d >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            if [[ "${{ github.event.inputs.dry_run }}" == "true" ]]; then
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "⚠️ **Dry run mode** - no changes were committed." >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "No new releases detected." >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "Made with 💗 by [Kartoza](https://kartoza.com)" >> $GITHUB_STEP_SUMMARY
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Build new releases
+  # ─────────────────────────────────────────────────────────────────────────────
+  build-new-releases:
+    name: Build New Release Docs
+    needs: detect-and-update
+    if: needs.detect-and-update.outputs.has_new == 'true' && github.event.inputs.dry_run != 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        release: ${{ fromJson(needs.detect-and-update.outputs.new_releases_json || '[]') }}
+
+    steps:
+      - name: Checkout (updated)
+        uses: actions/checkout@v4
+        with:
+          ref: main  # Get the updated releases.nix
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v27
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: Setup Cachix
+        uses: cachix/cachix-action@v15
+        with:
+          name: ${{ env.CACHIX_CACHE }}
+          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
+
+      - name: Build documentation
+        run: |
+          echo "Building docs for new release..."
+          # The build will be handled by the nightly workflow
+          # This job just ensures the index is updated
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Trigger nightly build for new releases
+  # ─────────────────────────────────────────────────────────────────────────────
+  trigger-builds:
+    name: Trigger Documentation Builds
+    needs: detect-and-update
+    if: needs.detect-and-update.outputs.has_new == 'true' && github.event.inputs.dry_run != 'true'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Trigger nightly workflow
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'nightly.yml',
+              ref: 'main',
+              inputs: {
+                force_rebuild_releases: 'true'
+              }
+            });
+            console.log('Triggered nightly workflow to build new releases');

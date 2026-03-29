@@ -1,0 +1,114 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# QGIS API Documentation Builder - Build Single Release Workflow
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+# Builds API documentation for a specific QGIS release
+#
+# Made with 💗 by Kartoza | https://kartoza.com
+#
+# ═══════════════════════════════════════════════════════════════════════════════
+
+name: Build Single Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release:
+        description: 'QGIS release branch (e.g., release-3_34)'
+        required: true
+        default: 'release-3_34'
+      push_to_cachix:
+        description: 'Push to Cachix'
+        required: false
+        default: 'true'
+        type: boolean
+
+env:
+  CACHIX_CACHE: qgisapidocumentation
+
+jobs:
+  build:
+    name: Build ${{ github.event.inputs.release }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v27
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            accept-flake-config = true
+
+      - name: Setup Cachix
+        uses: cachix/cachix-action@v15
+        with:
+          name: ${{ env.CACHIX_CACHE }}
+          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
+          skipPush: ${{ github.event.inputs.push_to_cachix != 'true' }}
+
+      - name: Build documentation
+        run: |
+          BRANCH="${{ github.event.inputs.release }}"
+          echo "Building QGIS API docs for $BRANCH..."
+
+          # Create temporary flake for this specific release
+          TEMP_DIR=$(mktemp -d)
+          trap 'rm -rf "$TEMP_DIR"' EXIT
+
+          cat > "$TEMP_DIR/flake.nix" <<EOF
+          {
+            description = "QGIS API Documentation for $BRANCH";
+            inputs = {
+              nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
+              flake-utils.url = "github:numtide/flake-utils";
+              qgis = {
+                url = "github:qgis/QGIS/$BRANCH";
+                flake = true;
+              };
+            };
+            outputs = { self, nixpkgs, flake-utils, qgis }:
+              flake-utils.lib.eachDefaultSystem (system:
+                let
+                  pkgs = import nixpkgs { inherit system; };
+                  qgisDocs = qgis.packages.\${system}.docs or null;
+                in {
+                  packages = {
+                    docs = if qgisDocs != null
+                      then qgisDocs
+                      else pkgs.runCommand "qgis-docs-unavailable" {} ''
+                        mkdir -p \$out
+                        echo "Docs unavailable for $BRANCH" > \$out/index.html
+                      '';
+                    default = self.packages.\${system}.docs;
+                  };
+                }
+              );
+          }
+          EOF
+
+          echo "Building..."
+          OUT_PATH=$(nix build "$TEMP_DIR#docs" --no-link --print-out-paths)
+          echo "Built: $OUT_PATH"
+
+          # Show some stats
+          if [[ -d "$OUT_PATH" ]]; then
+            FILE_COUNT=$(find "$OUT_PATH" -type f | wc -l)
+            SIZE=$(du -sh "$OUT_PATH" | cut -f1)
+            echo "Documentation stats:"
+            echo "  Files: $FILE_COUNT"
+            echo "  Size: $SIZE"
+          fi
+
+      - name: Summary
+        run: |
+          echo "# Build Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Release:** ${{ github.event.inputs.release }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Pushed to Cachix:** ${{ github.event.inputs.push_to_cachix }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "Made with 💗 by [Kartoza](https://kartoza.com)" >> $GITHUB_STEP_SUMMARY

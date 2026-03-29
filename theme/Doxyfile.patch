@@ -1,0 +1,13 @@
+# Doxyfile settings to enable doxygen-awesome-css theme
+# These settings should be appended to the QGIS Doxyfile
+
+# Use doxygen-awesome-css
+GENERATE_TREEVIEW      = YES
+DISABLE_INDEX          = NO
+FULL_SIDEBAR           = NO
+HTML_EXTRA_STYLESHEET  = doxygen-awesome.css \
+                         doxygen-awesome-sidebar-only.css \
+                         doxygen-awesome-sidebar-only-darkmode-toggle.css \
+                         qgis-theme.css
+HTML_EXTRA_FILES       = doxygen-awesome-darkmode-toggle.js
+HTML_COLORSTYLE        = LIGHT

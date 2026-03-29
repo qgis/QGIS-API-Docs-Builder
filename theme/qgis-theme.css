@@ -1,0 +1,185 @@
+/* ═══════════════════════════════════════════════════════════════════════════════
+ * QGIS API Documentation - Custom Theme
+ * ═══════════════════════════════════════════════════════════════════════════════
+ *
+ * Custom styling on top of doxygen-awesome-css to match QGIS branding
+ *
+ * Made with 💗 by Kartoza | https://kartoza.com
+ *
+ * ═══════════════════════════════════════════════════════════════════════════════ */
+
+/* QGIS Brand Colors */
+:root {
+    /* QGIS Green */
+    --qgis-green: #93b023;
+    --qgis-green-dark: #589632;
+    --qgis-green-light: #b4d455;
+
+    /* QGIS Blue */
+    --qgis-blue: #2b5797;
+    --qgis-blue-dark: #1e3d6b;
+
+    /* Override doxygen-awesome primary color with QGIS green */
+    --primary-color: var(--qgis-green-dark);
+    --primary-dark-color: var(--qgis-green);
+    --primary-light-color: var(--qgis-green-light);
+
+    /* Links */
+    --page-foreground-color: #333;
+    --primary-color: var(--qgis-green-dark);
+}
+
+/* Dark mode overrides */
+html.dark-mode {
+    --primary-color: var(--qgis-green);
+    --primary-dark-color: var(--qgis-green-light);
+}
+
+/* Header/Title bar styling */
+#titlearea {
+    background: linear-gradient(135deg, var(--qgis-green-dark) 0%, var(--qgis-green) 100%);
+    padding: 1rem;
+    border-bottom: 3px solid var(--qgis-green-dark);
+}
+
+#titlearea table {
+    width: 100%;
+}
+
+#projectname {
+    color: white !important;
+    font-weight: 600;
+    text-shadow: 1px 1px 2px rgba(0,0,0,0.2);
+}
+
+#projectbrief {
+    color: rgba(255,255,255,0.9) !important;
+}
+
+#projectnumber {
+    color: rgba(255,255,255,0.8) !important;
+}
+
+/* Navigation tabs */
+.sm-dox {
+    background: var(--qgis-green-dark) !important;
+}
+
+.sm-dox a {
+    color: white !important;
+}
+
+.sm-dox a:hover {
+    background: var(--qgis-green) !important;
+}
+
+/* Sidebar styling */
+#side-nav {
+    background: #f8f9fa;
+}
+
+html.dark-mode #side-nav {
+    background: #1a1a2e;
+}
+
+/* Selected item in tree */
+.selected {
+    background: var(--qgis-green-light) !important;
+}
+
+html.dark-mode .selected {
+    background: var(--qgis-green-dark) !important;
+}
+
+/* Links */
+a {
+    color: var(--qgis-green-dark);
+}
+
+a:hover {
+    color: var(--qgis-green);
+}
+
+/* Code blocks */
+div.fragment {
+    border-left: 4px solid var(--qgis-green);
+}
+
+/* Section headers */
+h1, h2, h3 {
+    color: var(--qgis-green-dark);
+}
+
+html.dark-mode h1,
+html.dark-mode h2,
+html.dark-mode h3 {
+    color: var(--qgis-green);
+}
+
+/* Table headers */
+.memberdecls td.memSeparator {
+    border-bottom: 1px solid var(--qgis-green-light);
+}
+
+/* Search box */
+#MSearchBox {
+    border: 1px solid var(--qgis-green);
+}
+
+#MSearchBox:focus-within {
+    border-color: var(--qgis-green-dark);
+    box-shadow: 0 0 4px var(--qgis-green-light);
+}
+
+/* Footer - add QGIS/Kartoza branding */
+.footer {
+    background: linear-gradient(135deg, var(--qgis-green-dark) 0%, var(--qgis-green) 100%);
+    color: white;
+    padding: 1rem;
+    text-align: center;
+}
+
+.footer a {
+    color: white;
+    text-decoration: underline;
+}
+
+/* Add "Powered by" footer content */
+#nav-path {
+    background: #f0f0f0;
+}
+
+html.dark-mode #nav-path {
+    background: #2d2d44;
+}
+
+/* Member descriptions */
+.memdoc {
+    border-left: 4px solid var(--qgis-green-light);
+}
+
+/* Buttons */
+.button {
+    background: var(--qgis-green-dark);
+    color: white;
+}
+
+.button:hover {
+    background: var(--qgis-green);
+}
+
+/* Version badge in header */
+.version-badge {
+    display: inline-block;
+    background: var(--qgis-blue);
+    color: white;
+    padding: 0.25rem 0.75rem;
+    border-radius: 4px;
+    font-size: 0.9em;
+    margin-left: 1rem;
+}
+
+/* Add QGIS logo space */
+#projectlogo img {
+    max-height: 48px;
+}

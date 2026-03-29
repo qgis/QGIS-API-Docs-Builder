@@ -1,0 +1,224 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# QGIS API Documentation - Legacy Release Builder
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+# Builds API documentation for older QGIS releases that don't have flake.nix
+# using the traditional CMake/Doxygen approach.
+#
+# This is intended to be run manually for initial backfill or rebuilding
+# specific legacy versions.
+#
+# Made with 💗 by Kartoza | https://kartoza.com
+#
+# ═══════════════════════════════════════════════════════════════════════════════
+
+name: Build Legacy Releases
+
+on:
+  # Manual trigger only
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Specific version to build (e.g., 3.34) or "all" for all legacy releases'
+        required: true
+        default: 'all'
+        type: string
+      upload_artifact:
+        description: 'Upload built docs as artifact'
+        required: false
+        default: 'true'
+        type: boolean
+
+env:
+  CACHIX_CACHE: qgisapidocumentation
+
+jobs:
+  build-legacy:
+    name: Build Legacy Documentation
+    runs-on: ubuntu-latest
+    timeout-minutes: 180  # 3 hours for potentially many releases
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            doxygen \
+            graphviz \
+            cmake \
+            git \
+            rsync \
+            python3 \
+            flex \
+            bison \
+            qtbase5-dev \
+            qttools5-dev
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v27
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: Build legacy documentation
+        run: |
+          echo "Building legacy QGIS API Documentation..."
+          echo ""
+
+          mkdir -p docs-output
+
+          # Build index page first
+          echo "Building index page..."
+          INDEX_PATH=$(nix build .#index --no-link --print-out-paths)
+          cp -r "$INDEX_PATH"/* docs-output/
+          chmod -R u+w docs-output/
+
+          # Get legacy releases from releases.nix
+          if [[ "${{ inputs.version }}" == "all" ]]; then
+            RELEASES=$(nix eval --raw .#lib.releases --apply 'releases:
+              builtins.concatStringsSep "\n" (
+                builtins.filter (x: x != "") (
+                  builtins.map (name:
+                    let r = releases.${name};
+                    in if r.useLegacyBuild or false then "${r.branch}:${r.version}" else ""
+                  ) (builtins.attrNames releases)
+                )
+              )
+            ')
+          else
+            # Build specific version
+            VERSION="${{ inputs.version }}"
+            VERSION_KEY=$(echo "$VERSION" | tr '.' '_')
+            RELEASES=$(nix eval --raw .#lib.releases --apply "releases:
+              let r = releases.\"${VERSION_KEY}\" or null;
+              in if r == null then \"\" else \"\${r.branch}:\${r.version}\"
+            ")
+            if [[ -z "$RELEASES" ]]; then
+              echo "Error: Version $VERSION not found in releases.nix"
+              exit 1
+            fi
+          fi
+
+          echo "Legacy releases to build:"
+          echo "$RELEASES"
+          echo ""
+
+          # Theme injection function
+          apply_theme() {
+            local version="$1"
+            cp theme/doxygen-awesome.css "docs-output/$version/"
+            cp theme/doxygen-awesome-sidebar-only.css "docs-output/$version/"
+            cp theme/doxygen-awesome-sidebar-only-darkmode-toggle.css "docs-output/$version/"
+            cp theme/doxygen-awesome-darkmode-toggle.js "docs-output/$version/"
+            cp theme/qgis-theme.css "docs-output/$version/"
+
+            CSS_INJECT='<link rel="stylesheet" href="doxygen-awesome.css"/><link rel="stylesheet" href="doxygen-awesome-sidebar-only.css"/><link rel="stylesheet" href="doxygen-awesome-sidebar-only-darkmode-toggle.css"/><link rel="stylesheet" href="qgis-theme.css"/><script src="doxygen-awesome-darkmode-toggle.js"></script>'
+
+            find "docs-output/$version" -name "*.html" -type f | while read -r html_file; do
+              if ! grep -q "doxygen-awesome.css" "$html_file" 2>/dev/null; then
+                sed -i "s|</head>|${CSS_INJECT}</head>|" "$html_file"
+              fi
+            done
+          }
+
+          SUCCESS_COUNT=0
+          FAIL_COUNT=0
+
+          # Build each legacy release
+          while IFS=: read -r branch version; do
+            [[ -z "$branch" ]] && continue
+
+            echo ""
+            echo "═══════════════════════════════════════════════════════════════"
+            echo "Building $version ($branch) [legacy/cmake]..."
+            echo "═══════════════════════════════════════════════════════════════"
+
+            WORK_DIR=$(mktemp -d)
+            (
+              cd "$WORK_DIR"
+
+              echo "Cloning QGIS $branch..."
+              git clone --depth 1 --branch "$branch" https://github.com/qgis/QGIS.git qgis
+              cd qgis
+              mkdir -p build && cd build
+
+              echo "Configuring CMake..."
+              cmake .. \
+                -DWITH_APIDOC=ON \
+                -DWITH_GUI=OFF \
+                -DWITH_DESKTOP=OFF \
+                -DWITH_3D=OFF \
+                -DWITH_PDAL=OFF \
+                -DWITH_GRASS=OFF \
+                -DWITH_SERVER=OFF \
+                -DWITH_BINDINGS=OFF \
+                -DWITH_QGIS_PROCESS=OFF \
+                -DWITH_QUICK=OFF \
+                2>&1 || echo "CMake config had warnings (continuing)"
+
+              echo "Building API documentation..."
+              make apidoc
+
+              mkdir -p "$GITHUB_WORKSPACE/docs-output/$version"
+              if [[ -d "doc/api/html" ]]; then
+                rsync -a doc/api/html/ "$GITHUB_WORKSPACE/docs-output/$version/"
+              elif [[ -d "../doc/api/html" ]]; then
+                rsync -a ../doc/api/html/ "$GITHUB_WORKSPACE/docs-output/$version/"
+              else
+                echo "Looking for generated docs..."
+                find . -name "index.html" -path "*/api/*" 2>/dev/null || true
+                exit 1
+              fi
+              chmod -R u+w "$GITHUB_WORKSPACE/docs-output/$version"
+
+            ) && {
+              echo "Applying theme..."
+              apply_theme "$version"
+              echo "✓ $version complete with theme"
+              SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
+            } || {
+              echo "✗ Failed to build $version"
+              FAIL_COUNT=$((FAIL_COUNT + 1))
+            }
+
+            rm -rf "$WORK_DIR"
+
+          done <<< "$RELEASES"
+
+          echo ""
+          echo "═══════════════════════════════════════════════════════════════"
+          echo "Legacy build complete!"
+          echo "  Successful: $SUCCESS_COUNT"
+          echo "  Failed: $FAIL_COUNT"
+          echo "═══════════════════════════════════════════════════════════════"
+          ls -la docs-output/
+
+      - name: Upload artifact
+        if: inputs.upload_artifact == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: qgis-api-docs-legacy
+          path: docs-output/
+          retention-days: 30
+
+      - name: Summary
+        run: |
+          echo "# Legacy QGIS API Documentation Build" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Date:** $(date -u '+%Y-%m-%d %H:%M UTC')" >> $GITHUB_STEP_SUMMARY
+          echo "**Version requested:** ${{ inputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Built Versions" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          for dir in docs-output/*/; do
+            version=$(basename "$dir")
+            [[ "$version" == "index.html" ]] && continue
+            echo "- ✓ $version" >> $GITHUB_STEP_SUMMARY
+          done
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "Made with 💗 by [Kartoza](https://kartoza.com)" >> $GITHUB_STEP_SUMMARY

@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QGIS API Documentation</title>
+    <link rel="icon" type="image/png" href="https://qgis.org/styleguide/visual/qgis-icon32.png">
+    <style>
+        :root {
+            --qgis-green: #93b023;
+            --qgis-green-dark: #589632;
+            --qgis-blue: #2b5797;
+            --bg-primary: #ffffff;
+            --bg-secondary: #f8f9fa;
+            --text-primary: #212529;
+            --text-secondary: #6c757d;
+            --border-color: #dee2e6;
+            --shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --bg-primary: #1a1a2e;
+                --bg-secondary: #16213e;
+                --text-primary: #e8e8e8;
+                --text-secondary: #a0a0a0;
+                --border-color: #2d2d44;
+                --shadow: 0 2px 8px rgba(0,0,0,0.3);
+            }
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        header {
+            background: linear-gradient(135deg, var(--qgis-green-dark) 0%, var(--qgis-green) 100%);
+            color: white;
+            padding: 2rem 1rem;
+            text-align: center;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            box-shadow: var(--shadow);
+        }
+
+        .header-content {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 1rem;
+            flex-wrap: wrap;
+        }
+
+        .logo {
+            height: 64px;
+            width: 64px;
+        }
+
+        h1 {
+            font-size: 2rem;
+            font-weight: 600;
+        }
+
+        .subtitle {
+            opacity: 0.9;
+            margin-top: 0.5rem;
+            font-size: 1.1rem;
+        }
+
+        main {
+            flex: 1;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem 1rem;
+            width: 100%;
+        }
+
+        .section-title {
+            font-size: 1.5rem;
+            margin-bottom: 1rem;
+            color: var(--text-primary);
+            border-bottom: 2px solid var(--qgis-green);
+            padding-bottom: 0.5rem;
+        }
+
+        .releases-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 3rem;
+        }
+
+        .release-card {
+            background: var(--bg-primary);
+            border-radius: 12px;
+            padding: 1.5rem;
+            box-shadow: var(--shadow);
+            border: 1px solid var(--border-color);
+            transition: transform 0.2s, box-shadow 0.2s;
+            text-decoration: none;
+            color: inherit;
+            display: block;
+        }
+
+        .release-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+        }
+
+        .release-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 0.75rem;
+        }
+
+        .release-version {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--qgis-green-dark);
+        }
+
+        .release-badges {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .badge {
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .badge-lts {
+            background: var(--qgis-blue);
+            color: white;
+        }
+
+        .badge-latest {
+            background: var(--qgis-green);
+            color: white;
+        }
+
+        .badge-dev {
+            background: #e74c3c;
+            color: white;
+        }
+
+        .release-description {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+            line-height: 1.5;
+        }
+
+        .release-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin-top: 1rem;
+            color: var(--qgis-green-dark);
+            font-weight: 500;
+        }
+
+        .release-link svg {
+            width: 16px;
+            height: 16px;
+        }
+
+        .info-section {
+            background: var(--bg-primary);
+            border-radius: 12px;
+            padding: 2rem;
+            margin-top: 2rem;
+            box-shadow: var(--shadow);
+            border: 1px solid var(--border-color);
+        }
+
+        .info-section h2 {
+            color: var(--qgis-green-dark);
+            margin-bottom: 1rem;
+        }
+
+        .info-section p {
+            color: var(--text-secondary);
+            line-height: 1.7;
+            margin-bottom: 1rem;
+        }
+
+        .info-section a {
+            color: var(--qgis-green-dark);
+        }
+
+        .links-row {
+            display: flex;
+            gap: 1rem;
+            flex-wrap: wrap;
+            margin-top: 1rem;
+        }
+
+        .external-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 1rem;
+            background: var(--bg-secondary);
+            border-radius: 6px;
+            text-decoration: none;
+            color: var(--text-primary);
+            font-weight: 500;
+            transition: background 0.2s;
+        }
+
+        .external-link:hover {
+            background: var(--qgis-green);
+            color: white;
+        }
+
+        footer {
+            background: var(--bg-primary);
+            border-top: 1px solid var(--border-color);
+            padding: 2rem 1rem;
+            text-align: center;
+            color: var(--text-secondary);
+        }
+
+        .footer-content {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .footer-links {
+            display: flex;
+            justify-content: center;
+            gap: 2rem;
+            margin-bottom: 1rem;
+            flex-wrap: wrap;
+        }
+
+        .footer-links a {
+            color: var(--text-secondary);
+            text-decoration: none;
+        }
+
+        .footer-links a:hover {
+            color: var(--qgis-green);
+        }
+
+        .made-with {
+            font-size: 0.9rem;
+        }
+
+        .made-with a {
+            color: var(--qgis-green-dark);
+            text-decoration: none;
+        }
+
+        /* Build info */
+        .build-info {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            margin-top: 1rem;
+        }
+
+        @media (max-width: 600px) {
+            header {
+                padding: 1.5rem 1rem;
+            }
+
+            h1 {
+                font-size: 1.5rem;
+            }
+
+            .logo {
+                height: 48px;
+                width: 48px;
+            }
+
+            .releases-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="header-content">
+            <img src="https://qgis.org/styleguide/visual/qgis-icon128.png" alt="QGIS Logo" class="logo">
+            <div>
+                <h1>QGIS API Documentation</h1>
+                <p class="subtitle">C++ API Reference for QGIS Development</p>
+            </div>
+        </div>
+    </header>
+
+    <main>
+        <h2 class="section-title">Available Versions</h2>
+
+        <div class="releases-grid">
+            <!-- RELEASES_PLACEHOLDER -->
+        </div>
+
+        <div class="info-section">
+            <h2>About QGIS API Documentation</h2>
+            <p>
+                This site provides API documentation for QGIS, the free and open-source geographic information system.
+                The documentation is generated using Doxygen from the QGIS C++ source code.
+            </p>
+            <p>
+                Choose a version above to browse the API reference. For most users, we recommend using the
+                <strong>latest LTS release</strong> for stable development, or <strong>master</strong> for
+                bleeding-edge features.
+            </p>
+
+            <h3 style="margin-top: 1.5rem; margin-bottom: 0.75rem;">Useful Resources</h3>
+            <div class="links-row">
+                <a href="https://qgis.org" class="external-link">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
+                    QGIS Website
+                </a>
+                <a href="https://github.com/qgis/QGIS" class="external-link">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"></path></svg>
+                    Source Code
+                </a>
+                <a href="https://docs.qgis.org" class="external-link">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>
+                    User Documentation
+                </a>
+                <a href="https://qgis.org/pyqgis/" class="external-link">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>
+                    PyQGIS API
+                </a>
+            </div>
+        </div>
+    </main>
+
+    <footer>
+        <div class="footer-content">
+            <div class="footer-links">
+                <a href="https://qgis.org">QGIS.org</a>
+                <a href="https://github.com/qgis/QGIS">GitHub</a>
+                <a href="https://qgis.org/community/mailing-lists/">Mailing Lists</a>
+                <a href="https://qgis.org/community/organisation/">Community</a>
+            </div>
+            <p class="made-with">
+                Made with 💗 by <a href="https://kartoza.com">Kartoza</a> |
+                <a href="https://qgis.org/funding/donate/">Donate!</a> |
+                <a href="https://github.com/qgis/qgis-api-docs-builder">GitHub</a>
+            </p>
+            <p class="build-info">
+                Built: <!-- BUILD_DATE_PLACEHOLDER -->
+            </p>
+        </div>
+    </footer>
+</body>
+</html>
